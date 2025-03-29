@@ -1,0 +1,13 @@
+name: PSL_app
+title: PSL_app
+username:
+account: adp12
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 7863759
+bundleId: 6620513
+url: https://adp12.shinyapps.io/PSL_app/
+when: 1670690732.62828
+lastSyncTime: 1670690732.62829
+asMultiple: FALSE
+asStatic: FALSE

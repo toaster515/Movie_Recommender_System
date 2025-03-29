@@ -1,0 +1,331 @@
+---
+title: "UIUC_CS_598_PSL Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+### Name: Anthony Petrotte
+
+```{r}
+library(recommenderlab)
+library(tidyverse)
+library(Matrix)
+setwd("C:/Users/Tony/Documents/UIUC/CS_598_PSL/Assignments/Projects/Project_4")
+```
+
+#### Load in Ratings data with provided code
+
+```{r}
+ratings = read.csv("data/ratings.dat",sep=":",colClasses = c('integer', 'NULL'), header = FALSE)
+colnames(ratings) = c('UserID', 'MovieID', 'Rating', 'Timestamp')
+```
+
+#### Load in User data with provided code
+
+```{r}
+users = read.csv('data/users.dat',sep = ':', header = FALSE)
+users = users[, -c(2,4,6,8)] # skip columns
+colnames(users) = c('UserID', 'Gender', 'Age', 'Occupation', 'Zip-code')
+```
+
+#### Loading Movie data with provided code
+
+```{r}
+movies = readLines('data/movies.dat')
+movies = strsplit(movies, split = "::", fixed = TRUE, useBytes = TRUE)
+movies = matrix(unlist(movies), ncol = 3, byrow = TRUE)
+movies = data.frame(movies, stringsAsFactors = FALSE)
+colnames(movies) = c('MovieID', 'Title', 'Genres')
+movies$MovieID = as.integer(movies$MovieID)
+
+# convert accented characters
+movies$Title[73]
+movies$Title = iconv(movies$Title, "latin1", "UTF-8")
+movies$Title[73]
+
+# extract year
+movies$Year = as.numeric(unlist(
+  lapply(movies$Title, function(x) substr(x, nchar(x)-4, nchar(x)-1))))
+```
+
+# System 1: Recommendation based on genres
+
+Supposing we know a user's favorite genre, recommending movies without any other information is mostly done through filtering and data wrangling. Given the data, there are a few ways that you could get creative with how to go about this, but I highlight the steps below as general pre-processing that I think would be useful for all filter based recommendation:
+
+**First**, find the average ratings. Understanding how highly a movie is rated on average would help to determine right away if other users find this movie 'good' in the aggregate. So calculating the average rating among all the users to be used in sorting and filtering would be vital.
+
+**Second**, one-hot encode the categories. The current delimited string could be used for filtering, but it is more useful down the road for filtering (or for other methods like regression etc) to split this into their own columns and then one-hot encode.
+
+**Third**, validate the ratings. The number is certainly up for debate, but setting a threshold for the minimum number of reviews needed to be considered valid is important. I think it is pretty intuitive that a high average based on a low count is not as valuable as a high average based on a high count. I set this threshold pretty low, to 10 reviews minimum.
+
+In addition, creating an average of the timestamps for the user ratings per movie ID can be used in filtering to create a "Trending" prediction.
+
+#### Pre-processing the Movie data
+
+```{r}
+genre_list = c("Action", "Adventure", "Animation", 
+               "Children", "Comedy", "Crime",
+               "Documentary", "Drama", "Fantasy",
+               "Film_Noir", "Horror", "Musical", 
+               "Mystery", "Romance", "Sci_Fi", 
+               "Thriller", "War", "Western")
+
+#Adjusting the Genres to remove characters that R wont like as names
+for (x in 1:nrow(movies)){
+    movies[x,'Genres']=str_replace_all(toString(movies[x,'Genres']),"'s","")
+    movies[x,'Genres']=str_replace_all(toString(movies[x,'Genres']),"-","_")
+}
+
+#Setting up empty columns for Average rating, number of ratings, valid indicator and a one hot column for all the genres
+movies.sep = movies
+movies.sep[,'Avg']<-NA
+movies.sep[,'Count']<-NA
+movies.sep[,'avgtime']<-NA
+movies.sep[,'Valid']<-NA
+movies.sep[,genre_list]<-NA
+
+#Valid set to minimum of 10 ratings
+valid.cutoff = 10
+
+#loop through data, split the genres into one-hot columns, indicate if valid
+for (x in 1:nrow(movies.sep)){
+    
+movies.sep[x,'Count']=count(ratings[ratings$MovieID==movies.sep[x,'MovieID'],])[1,]
+movies.sep[x,'avgtime']=mean(ratings[ratings$MovieID==movies.sep[x,'MovieID'],c("Timestamp")])
+movies.sep[x,'Avg']=mean(ratings[ratings$MovieID==movies.sep[x,'MovieID'],c("Rating")])
+    if(movies.sep[x,'Count']>=valid.cutoff){
+        movies.sep[x,'Valid']=1
+    }else{
+        movies.sep[x,'Valid']=0
+    }
+    
+    genres = strsplit(toString(movies.sep[x,'Genres']),"[|]")
+    for (g in genres){
+        movies.sep[x,g]=1
+    }
+}
+
+#Make NAs in one-hot columns into 0s
+for (g in genre_list){
+    movies.sep[,g]=replace_na(movies.sep[,g],0)
+}
+
+#Filter valid movies
+valid.movies = filter(movies.sep,Valid==1)
+```
+
+Now that the movie data is structured in a way that we can filter and sort easily, there are quite a few ways to make recommendations based on genre.
+
+**System 1.1: Simple recommendation based on genre and average rating**
+
+Simply, if we know that someone's favorite genre is say, Comedy, we can filter the valid movie results where the 'Comedy' column is 1, and sort based on the average rating and the ratings count for good measure:
+
+```{r}
+users_fav = toString("Comedy")
+rec = filter(valid.movies[with(valid.movies,order(Avg,Count,decreasing=TRUE)),],get({{users_fav}})==1)[1:10]
+rec[,colnames(rec)%in%c("Title","Avg")]
+```
+
+Generally speaking, these would then be the top 10 rated movies on average that had the 'Comedy' genre type. That could definitely provide some decent recommendations, I see "Monty Python and the Holy Grail" on that list, which tells me it did something right.
+
+However, some of these movies, although very highly rated, could be a bit dated for some.
+
+**System 1.2: Average rating and year to get new movies**
+
+Adjusting the above method to give the more recent highly rated movies in the "Comedy" category is pretty straight forward: Sort by the year, and then by the rating, it's really that easy:
+
+```{r}
+users_fav = toString("Comedy")
+rec = filter(valid.movies[with(valid.movies,order(Year,Avg,decreasing=TRUE)),],get({{users_fav}})==1)[1:10]
+rec[,colnames(rec)%in%c("Title","Avg")]
+```
+
+The Movie dataset only goes up to the year 2000, and you can see that each of the movies above is at that year. The ratings themselves decline rapidly as the main filtering method is year, but this would ensure you get 'newer' movies to choose from with the highest rating in the genre.
+
+**System 1.3: "Trending" filter for genre**
+
+Since we also have the timestamps for when the users made their ratings, we could also go so far as to find a "trending" list. This could be done in a simple way by accumulating the average timestamp for each movie, and then sorting on it the way "Year" was sorted on above. This will give us a list of movies that were on average rated most recently, which would indicate they were trending.
+
+In addition, even though we are still sorting on average rating, there is really no lower bound since we're mainly looking at what's being rated most recently. So we can also add a rating threshold to weed out movies we know aren't any good, even if they may have come out recently.
+
+```{r}
+users_fav = toString("Comedy")
+rating_thresh = 3.5
+
+rec = filter(valid.movies[with(valid.movies,order(avgtime,Avg,decreasing=TRUE)),],get({{users_fav}})==1)
+rec = rec[rec$Avg>=rating_thresh,]
+rec[,colnames(rec)%in%c("Title","Avg")]
+```
+
+You can see from this update to the year based version that the movies look more tailored and have generally decent overall ratings due to the threshold.
+
+These are decent recommendations if the only thing you know about the user is the genre they want to watch. If you had more information about the user, you could easily filter these methods again to remove movies that you know the user has seen to create a more tailored recommendation.
+
+**System used in the app** I chose to use the first simple system (1.1) when building my app as without more information other than a genre, and given the other methods given here, it seemed adequate to demonstrate.
+
+# System 2: Collaborative Recommendation System
+
+## Review and Coding of UBCF & IBCF
+
+Train and Test split
+
+```{r}
+i = paste0('u', ratings$UserID)
+j = paste0('m', ratings$MovieID)
+x = ratings$Rating
+tmp = data.frame(i, j, x, stringsAsFactors = T)
+Rmat = sparseMatrix(as.integer(tmp$i), as.integer(tmp$j), x = tmp$x)
+rownames(Rmat) = levels(tmp$i)
+colnames(Rmat) = levels(tmp$j)
+Rmat = new('realRatingMatrix', data = Rmat)
+
+train = Rmat[1:500, ]
+test = Rmat[501, ]
+```
+
+## UBCF
+
+Demonstrate how UBCF predicts the ratings of a new user based on training data.
+
+Use the first 500 users from MovieLens as training and predict the ratings of the 501st user.
+
+User data is the matrix, similarity is the vector
+
+**Normalize Data**
+
+```{r}
+data = as(train, "matrix")
+user.means = rowMeans(data, na.rm = TRUE)
+data = data-user.means
+idata = !is.na(data)
+
+newdata = as(test, "matrix")
+newuser.mean = mean(newdata, na.rm = TRUE)
+newdata = newdata - newuser.mean
+```
+
+**Similarity For UBCF**
+
+```{r}
+sim1 = rep(0,dim(data)[1])
+
+for(i in 1:length(sim1)){
+  tmp.y = as.vector(newdata)
+  ind.y = which(!is.na(tmp.y))
+  tmp.x = data[i,]
+  ind.x = which(!is.na(tmp.x))
+  ind = intersect(ind.x,ind.y)
+  
+  if(length(ind)>0){
+    tmp.x = tmp.x[ind]
+    tmp.y = tmp.y[ind]
+    sim1[i] = sum(tmp.x * tmp.y) / sqrt(sum(tmp.x^2) *sum(tmp.y^2))
+  }
+}
+#sim1 = proxy::simil(data, newdata, method='cosine')
+sim1 = (1+sim1)/2
+```
+
+**Top K Neighbors**
+
+```{r}
+k=20
+topk <- sort(sim1, index.return=TRUE, decreasing = TRUE)$ix[1:k]
+sim1[-topk]<-0
+```
+
+**UBCF Calculation**
+
+```{r}
+numer <- colSums(data*sim1, na.rm=TRUE)
+denom <- colSums(idata*sim1)
+
+UBCF <- numer/denom
+
+UBCF[is.infinite(UBCF)]<-NA
+UBCF[is.nan(UBCF)]<-NA
+UBCF[!is.na(newdata)]<-NA
+
+mypred <- UBCF+newuser.mean
+```
+
+#### Coded UBCF prediction comparison to `recommenderlab` UBCF prediction
+
+```{r}
+recommender.UBCF <- Recommender(train, method = "UBCF",
+                                parameter = list(normalize = 'center', 
+                                                 method = 'Cosine', 
+                                                 nn = 20))
+
+p.UBCF <- predict(recommender.UBCF, test, type="ratings")
+p.UBCF <- as.numeric(as(p.UBCF, "matrix"))
+
+sum(is.na(p.UBCF) != is.na(mypred)) ### should be zero
+max(abs(p.UBCF - mypred), na.rm = TRUE)  ### should be less than 1e-06 
+```
+
+## IBCF
+
+Demonstrate how UBCF predicts the ratings of a new user based on training data. Use the first 500 users from MovieLens as training and predict the ratings of the 501st user.
+
+User data is the vector, similarity is the matrix
+
+**Similarity Matrix**
+
+```{r}
+sim2 = proxy::simil(data, by_rows=FALSE,method='cosine')
+sim2 = (1+sim2)/2
+sim2 <- as(sim2,'matrix')
+```
+
+**Top K Neighbors per matrix row**
+
+```{r}
+k=30
+for (i in 1:dim(sim2)[1]){
+  #topk = sort(sim2[i,], index.return=TRUE, decreasing=TRUE)$ix[1:k]
+  topk = tail(order(sim2[i,],decreasing = FALSE, na.last=FALSE),30)
+  sim2[i,-topk] <- NA
+}
+```
+
+**IBCF Calculation**
+
+```{r}
+newdata = as(test,'matrix')
+newvec = as.vector(newdata)
+newmtrx = matrix(rep(newvec, each=dim(sim2)[1]),nrow=dim(sim2)[1])
+matrxsim = sim2*newmtrx
+
+indicator = which(is.na(newdata))
+mypred = rep(NA, times = ncol(newdata))
+
+for (i in 1:dim(sim2)[1]){
+  numer = sum(matrxsim[indicator[i],], na.rm=TRUE)
+  denom = sum(!is.na(matrxsim[indicator[i],]))
+  mypred[indicator[i]] = numer/denom
+}
+mypred[is.infinite(mypred)]<-NA
+mypred[is.nan(mypred)]<-NA
+
+```
+
+#### Coded IBCF prediction comparison to `recommenderlab` IBCF prediction
+
+```{r}
+recommender.IBCF <- Recommender(train, method = "IBCF",
+                                parameter = list(normalize = 'center', 
+                                                 method = 'Cosine', 
+                                                 k = 30))
+
+p.IBCF <- predict(recommender.IBCF, test, type="ratings")
+p.IBCF <- as.numeric(as(p.IBCF, "matrix"))
+
+## first output: should be less than 10
+sum(is.na(p.IBCF) != is.na(mypred))  
+
+## second output: should be less than 10%
+mydiff = abs(p.IBCF - mypred)
+sum(mydiff[!is.na(mydiff)] > 1e-6) / sum(!is.na(mydiff)) 
+```
