@@ -6,6 +6,8 @@ This project is a movie recommender system built as part of UIUC CS 598 PSL usin
 **Anthony Petrotte**  
 University of Illinois Urbana-Champaign
 
+[Link to deployed app](https://adp12.shinyapps.io/PSL_app/)
+
 ---
 
 ## Table of Contents
@@ -16,8 +18,6 @@ University of Illinois Urbana-Champaign
   - [System 2: Collaborative Filtering](#system-2-collaborative-filtering)
 - [Key Algorithms](#key-algorithms)
 - [App Features](#app-features)
-- [Running the App](#running-the-app)
-- [Screenshots](#screenshots)
 - [Acknowledgments](#acknowledgments)
 
 ---
@@ -71,20 +71,6 @@ The models are trained using the first 500 users of the dataset, and new users a
 - Toggle between UBCF and IBCF
 - Loading indicators and animated transitions
 - Optionally enriched movie metadata (year, genres, average rating)
-
----
-
-## Running the App
-1. Clone this repository.
-2. Install the required packages:
-```r
-install.packages(c("shiny", "shinydashboard", "recommenderlab", "Matrix", "tidyverse", "data.table", "shinyjs", "ShinyRatingInput"))
-```
-3. Run the app using:
-```r
-shiny::runApp("./path/to/app")
-```
-4. Alternatively, deploy via [shinyapps.io](https://www.shinyapps.io/) using `rsconnect`.
 
 ---
 
